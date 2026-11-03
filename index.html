@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>591 店面地圖</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+<base target="_blank">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --text: #1f2328; --muted: #6a6f76; --line: #e3e1dc;
+    --accent: #0f766e; --accent-soft: #e3f2ef; --new: #c2410c; --new-soft: #fdebdf;
+    --want: #b7791f; --want-soft: #fbf1dc; --skip: #8a8f96; --chip: #f0eeea; --shadow: 0 1px 2px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171a; --panel: #1d2024; --text: #e8e6e3; --muted: #9aa0a6; --line: #2e3238;
+      --accent: #2dd4bf; --accent-soft: #123a36; --new: #fb923c; --new-soft: #3b2416;
+      --want: #f2c14e; --want-soft: #3a3016; --skip: #6b7178; --chip: #262a2f; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    overflow-x: hidden;
+    background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  }
+  button, select, input { font: inherit; color: inherit; }
+
+  #app { display: grid; grid-template-columns: 460px 1fr; height: 100vh; }
+  #side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); background: var(--bg); }
+  #map { height: 100vh; }
+  #scroll { overflow-y: auto; flex: 1; }
+
+  header { padding: 14px 16px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+  .updated { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .updated.stale { color: var(--new); }
+
+  details#filters { background: var(--panel); border-bottom: 1px solid var(--line); }
+  details#filters > summary {
+    list-style: none; cursor: pointer; padding: 10px 16px; font-size: 14px; color: var(--muted);
+    display: flex; justify-content: space-between; gap: 8px;
+  }
+  details#filters > summary::-webkit-details-marker { display: none; }
+  details#filters > summary::after { content: "篩選 ▾"; color: var(--accent); white-space: nowrap; }
+  details#filters[open] > summary::after { content: "收合 ▴"; }
+  .fbody { padding: 0 16px 14px; display: grid; gap: 10px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .row > label.k { width: 52px; font-size: 13px; color: var(--muted); flex: none; }
+  .seg { display: inline-flex; background: var(--chip); border-radius: 8px; padding: 2px; }
+  .seg button { border: 0; background: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  .seg button.on { background: var(--panel); box-shadow: 0 1px 2px rgba(0,0,0,.12); color: var(--accent); font-weight: 600; }
+  .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 3px 11px; cursor: pointer; font-size: 14px; }
+  .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  select, input[type=number] {
+    border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 4px 8px; font-size: 14px;
+  }
+  input[type=number] { width: 64px; }
+  input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .rval { font-variant-numeric: tabular-nums; min-width: 58px; font-size: 14px; }
+  label.check { font-size: 14px; display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+
+  .count { padding: 10px 16px 4px; font-size: 14px; color: var(--muted); }
+  .count b { color: var(--text); }
+  .notes { padding: 0 16px; font-size: 13px; color: var(--muted); }
+
+  #list { padding: 8px 12px 24px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+    display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 10px; position: relative; cursor: pointer;
+  }
+  .card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .card.skip { opacity: .55; }
+  .thumb { width: 96px; height: 96px; border-radius: 8px; object-fit: cover; background: var(--chip); display: block; }
+  .idx {
+    position: absolute; top: 6px; left: 6px; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px;
+    background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; display: grid; place-items: center;
+  }
+  .card.want .idx { background: var(--want); }
+  .card.isnew .idx { background: var(--new); }
+  .card.skip .idx { background: var(--skip); }
+  .body { min-width: 0; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 2px; }
+  .b { font-size: 12px; border-radius: 4px; padding: 0 6px; background: var(--chip); color: var(--muted); }
+  .b.new { background: var(--new-soft); color: var(--new); font-weight: 600; }
+  .b.want { background: var(--want-soft); color: var(--want); font-weight: 600; }
+  h3 { margin: 0; font-size: 15px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .price { font-weight: 700; font-size: 16px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .price small { font-weight: 400; color: var(--muted); font-size: 12px; }
+  .meta, .addr, .note { font-size: 13px; color: var(--muted); }
+  .addr .d { color: var(--text); font-weight: 600; }
+  .note { margin-top: 2px; }
+  .actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .actions button, .actions a {
+    border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 2px 10px;
+    font-size: 13px; cursor: pointer; text-decoration: none; color: var(--text);
+  }
+  .actions button.on[data-mark=want] { background: var(--want-soft); border-color: var(--want); color: var(--want); font-weight: 600; }
+  .actions button.on[data-mark=skip] { background: var(--chip); border-color: var(--skip); font-weight: 600; }
+  .empty { padding: 32px 16px; text-align: center; color: var(--muted); }
+
+  .pin {
+    width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; border: 2px solid #fff;
+    display: grid; place-items: center; font-size: 11px; font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.35);
+  }
+  .pin.isnew { background: var(--new); }
+  .pin.want { background: var(--want); }
+  .pin.skip { background: var(--skip); }
+  .pin.sel { transform: scale(1.3); }
+  .target { width: 18px; height: 18px; border-radius: 50%; background: #dc2626; border: 3px solid #fff; box-shadow: 0 0 0 2px #dc2626; }
+  @media (prefers-color-scheme: dark) {
+    .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); }
+  }
+  .leaflet-popup-content { font-size: 13px; line-height: 1.45; }
+  .leaflet-popup-content b { font-size: 14px; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #1f2328; color: #fff;
+    padding: 10px 14px; border-radius: 10px; font-size: 14px; display: none; gap: 12px; align-items: center; z-index: 1000;
+    max-width: calc(100vw - 32px);
+  }
+  #toast button { background: none; border: 0; color: #5eead4; font-weight: 700; cursor: pointer; }
+
+  @media (max-width: 860px) {
+    /* 手機：標題 → 篩選 → 地圖 → 名單 */
+    #app { display: flex; flex-direction: column; height: auto; }
+    #side { display: contents; }
+    header { order: 1; } details#filters { order: 2; } #map { order: 3; height: 42vh; } #scroll { order: 4; }
+    #scroll { overflow: visible; }
+    #list { padding: 8px 8px 24px; }
+    .row > label.k { width: 44px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="side">
+    <header>
+      <h1>591 店面地圖</h1>
+      <div class="updated" id="updated"></div>
+    </header>
+    <details id="filters">
+      <summary><span id="fsum"></span></summary>
+      <div class="fbody">
+        <div class="row">
+          <label class="k">範圍</label>
+          <div class="seg" id="mode">
+            <button data-v="radius">定點半徑</button><button data-v="qingguang">晴光附近</button><button data-v="all">全部</button>
+          </div>
+        </div>
+        <div class="row" id="radiusRow">
+          <label class="k">半徑</label>
+          <input type="range" id="radius" min="100" max="2000" step="50">
+          <span class="rval" id="radiusVal"></span>
+        </div>
+        <div class="row">
+          <label class="k">月租</label>
+          <select id="maxPrice">
+            <option value="0">不限</option><option value="30000">3 萬以下</option><option value="50000">5 萬以下</option>
+            <option value="80000">8 萬以下</option><option value="100000">10 萬以下</option>
+            <option value="150000">15 萬以下</option><option value="200000">20 萬以下</option>
+          </select>
+          <label class="k" style="width:auto;margin-left:8px">坪數</label>
+          <input type="number" id="minArea" min="0" placeholder="不限"> ～
+          <input type="number" id="maxArea" min="0" placeholder="不限">
+        </div>
+        <div class="row">
+          <label class="k">類別</label>
+          <span id="cats"></span>
+        </div>
+        <div class="row">
+          <label class="k">顯示</label>
+          <div class="seg" id="show">
+            <button data-v="all">全部</button><button data-v="want">⭐ 想約看</button><button data-v="new">🆕 新物件</button>
+          </div>
+          <label class="check"><input type="checkbox" id="showSkip">含不考慮</label>
+        </div>
+        <div class="row">
+          <label class="k">排序</label>
+          <select id="sort">
+            <option value="distance">距離近→遠</option><option value="newest">最新出現</option>
+            <option value="price_asc">價格低→高</option><option value="price_desc">價格高→低</option>
+            <option value="area_asc">坪數小→大</option><option value="area_desc">坪數大→小</option>
+          </select>
+        </div>
+      </div>
+    </details>
+    <div id="scroll">
+      <div class="count" id="count"></div>
+      <div class="notes" id="notes"></div>
+      <div id="list"></div>
+    </div>
+  </div>
+  <div id="map"></div>
+</div>
+<div id="toast"><span id="toastText"></span><button id="toastUndo">復原</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// 連結格式：…/rent591-map/#k=網頁密鑰&s=GAS部署代號（放在 # 後面，不會送到 GitHub）。
+// 資料與標記都存在 GAS（rent591-linebot/gas/Code.gs 的 doGet／handleMark_），這裡只有畫面。
+const HASH = new URLSearchParams(location.hash.slice(1));
+const KEY = HASH.get('k');
+const API = /^[\w-]+$/.test(HASH.get('s') || '') ? `https://script.google.com/macros/s/${HASH.get('s')}/exec` : '';
+
+function fatal(msg) {
+  document.getElementById('count').textContent = '';
+  document.getElementById('list').innerHTML = `<div class="empty">${msg}</div>`;
+}
+
+async function boot() {
+  if (!KEY || !API) return fatal('連結不完整，請從 LINE 傳「網頁」取得完整連結再開啟');
+  document.getElementById('list').innerHTML = '<div class="empty">載入中…</div>';
+  let res;
+  try {
+    res = await (await fetch(`${API}?k=${encodeURIComponent(KEY)}`)).json();
+  } catch (e) {
+    return fatal('讀取資料失敗，請稍後再試（' + e.message + '）');
+  }
+  if (!res.ok) return fatal(res.error === '找不到頁面' ? '連結已失效，請從 LINE 傳「網頁」取得新連結' : '讀取資料失敗：' + res.error);
+  start(res);
+}
+
+function start(BOOT) {
+  const DATA = BOOT.data || { items: [], sections: [], updated: 0 };
+  const SET = BOOT.settings || {};
+  const POINT = SET.point || { name: '台北', lat: 25.0565, lng: 121.5246 };
+  const CATS = ['店面', '辦公', '住辦'];
+  const CAT_LABEL = { '辦公': '🏢 辦公', '住辦': '🏠 住辦' };
+  const NEW_MS = 24 * 3600 * 1000;
+  const STORE_KEY = 'rent591.filters';
+  let marks = BOOT.marks || {};
+  let selected = null;
+
+  // ---------- 小工具 ----------
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const num = s => { const n = parseFloat(String(s || '').replace(/[,坪]/g, '')); return isNaN(n) ? null : n; };
+  const walk = d => Math.max(1, Math.round(d * 1.3 / 80));   // 跟 bot.py 一樣：繞路係數 1.3、每分鐘 80 公尺
+  const fmtWan = n => n % 10000 ? (n / 10000).toFixed(1) + ' 萬' : n / 10000 + ' 萬';
+  function distance(lat, lng) {
+    const r = x => x * Math.PI / 180;
+    const h = Math.sin(r(lat - POINT.lat) / 2) ** 2 + Math.cos(r(POINT.lat)) * Math.cos(r(lat)) * Math.sin(r(lng - POINT.lng) / 2) ** 2;
+    return Math.round(6371000 * 2 * Math.asin(Math.sqrt(h)));
+  }
+  const isNew = it => it.ts && Date.now() - it.ts * 1000 < NEW_MS;
+  const markOf = it => (marks[it.id] || {}).m || '';
+
+  DATA.items.forEach(it => {
+    it.dist = it.lat != null ? distance(it.lat, it.lng) : null;
+    it.p = num(it.price);
+    it.a = num(it.area);
+  });
+
+  // ---------- 篩選狀態（預設跟 LINE 上的設定一樣；在網頁改的只記在這台瀏覽器）----------
+  const defaults = {
+    mode: SET.mode === 'qingguang' ? 'qingguang' : 'radius', radius: SET.radius || 800,
+    maxPrice: SET.max_price || 0, minArea: SET.min_area || '', maxArea: SET.max_area || '',
+    cats: CATS.slice(), show: 'all', showSkip: false, sort: SET.sort || 'distance',
+  };
+  let state = Object.assign({}, defaults);
+  try { Object.assign(state, JSON.parse(localStorage.getItem(STORE_KEY) || '{}')); } catch (e) {}
+  function saveState() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }
+
+  function visible(it) {
+    if (!basicOk(it)) return false;
+    if (state.mode === 'radius') return it.dist != null && it.dist <= state.radius;
+    if (state.mode === 'qingguang') return !!it.qg;
+    return true;
+  }
+
+  /** 範圍以外的條件：類別、價格、坪數、標記。 */
+  function basicOk(it) {
+    if (!state.cats.includes(it.category)) return false;
+    if (state.maxPrice && it.p && it.p > state.maxPrice) return false;
+    if (state.minArea && it.a && it.a < +state.minArea) return false;
+    if (state.maxArea && it.a && it.a > +state.maxArea) return false;
+    const m = markOf(it);
+    if (m === 'skip' && !state.showSkip) return false;
+    if (state.show === 'want' && m !== 'want') return false;
+    if (state.show === 'new' && !isNew(it)) return false;
+    return true;
+  }
+
+  const SORTS = {
+    distance: it => it.dist, newest: it => -it.ts, price_asc: it => it.p, price_desc: it => it.p == null ? null : -it.p,
+    area_asc: it => it.a, area_desc: it => it.a == null ? null : -it.a,
+  };
+  function sorted(items) {
+    const key = SORTS[state.sort] || SORTS.distance;
+    // 取不到值的排最後；同值時近的在前
+    return items.slice().sort((x, y) => {
+      const a = key(x), b = key(y);
+      if (a == null || b == null) return (a == null) - (b == null);
+      return a - b || (x.dist == null) - (y.dist == null) || (x.dist || 0) - (y.dist || 0);
+    });
+  }
+
+  // ---------- 地圖 ----------
+  const map = L.map('map', { zoomControl: true }).setView([POINT.lat, POINT.lng], 15);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(map);
+  L.marker([POINT.lat, POINT.lng], { icon: L.divIcon({ className: '', html: '<div class="target"></div>', iconSize: [18, 18] }), zIndexOffset: 1000 })
+    .addTo(map).bindPopup(`<b>📍 ${esc(POINT.name)}</b><br>定點`);
+  const circle = L.circle([POINT.lat, POINT.lng], { radius: state.radius, color: '#0f766e', weight: 1.5, fillOpacity: 0.06 }).addTo(map);
+  const layer = L.layerGroup().addTo(map);
+  const markers = {};
+  let fitted = false;
+
+  function pinClass(it) {
+    const m = markOf(it);
+    return ['pin', m, !m && isNew(it) ? 'isnew' : '', selected === it.id ? 'sel' : ''].filter(Boolean).join(' ');
+  }
+
+  function popupHtml(it) {
+    return `<b>${esc(it.title)}</b><br>${it.price ? esc(it.price) + ' 元/月' : '價格未標'}・${esc(it.area)}・${esc(it.floor)}<br>` +
+      `${esc(it.address)}${it.dist != null ? `・${it.dist}m（🚶 約 ${walk(it.dist)} 分）` : ''}<br>` +
+      `<a href="${esc(it.url)}">在 591 看 ↗</a>`;
+  }
+
+  // ---------- 名單 ----------
+  function card(it, i) {
+    const m = markOf(it);
+    const badges = [
+      isNew(it) ? '<span class="b new">🆕 新</span>' : '',
+      m === 'want' ? '<span class="b want">⭐ 想約看</span>' : '',
+      m === 'skip' ? '<span class="b">✖ 不考慮</span>' : '',
+      CAT_LABEL[it.category] ? `<span class="b">${CAT_LABEL[it.category]}</span>` : '',
+      it.shop_type ? `<span class="b">${esc(it.shop_type)}</span>` : '',
+    ].join('');
+    const dist = it.dist != null ? `<span class="d">${it.dist}m</span>・🚶 約 ${walk(it.dist)} 分鐘`
+      : (it.category === '住辦' ? '距離不明（591 住辦頁面沒有座標）' : '距離不明');
+    const notes = [it.repost, it.flag, state.mode === 'qingguang' && it.qg ? `列入原因：${it.qg}` : '']
+      .filter(Boolean).map(n => `<div class="note">${esc(n)}</div>`).join('');
+    return `<article class="card ${m} ${!m && isNew(it) ? 'isnew' : ''} ${selected === it.id ? 'sel' : ''}" data-id="${it.id}">
+      <div class="idx">${i + 1}</div>
+      <img class="thumb" src="${esc(it.img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">
+      <div class="body">
+        <div class="badges">${badges}</div>
+        <h3>${esc(it.title)}</h3>
+        <div class="price">${it.price ? esc(it.price) + ' <small>元/月</small>' : '<small>價格未標</small>'}</div>
+        <div class="meta">${[it.area, it.floor].filter(Boolean).map(esc).join('・')}${it.mrt ? `・距${esc(it.mrt)} ${it.mrt_m}m` : ''}</div>
+        <div class="addr">${esc(it.address)}・${dist}</div>
+        ${notes}
+        <div class="actions">
+          <button data-mark="want" class="${m === 'want' ? 'on' : ''}">⭐ 想約看</button>
+          <button data-mark="skip" class="${m === 'skip' ? 'on' : ''}">✖ 不考慮</button>
+          <a href="${esc(it.url)}">591 看物件 ↗</a>
+        </div>
+      </div>
+    </article>`;
+  }
+
+  function summaryText() {
+    const parts = [state.mode === 'radius' ? `半徑 ${state.radius}m` : state.mode === 'qingguang' ? '晴光附近' : '全部範圍'];
+    parts.push(state.maxPrice ? fmtWan(state.maxPrice) + '以下' : '月租不限');
+    parts.push(state.minArea || state.maxArea ? `${state.minArea || 0}～${state.maxArea || '∞'} 坪` : '坪數不限');
+    if (state.cats.length < CATS.length) parts.push(state.cats.join('、') || '無類別');
+    if (state.show === 'want') parts.push('只看想約看');
+    if (state.show === 'new') parts.push('只看新物件');
+    return parts.join('｜');
+  }
+
+  function render() {
+    const shown = sorted(DATA.items.filter(visible));
+    $('fsum').textContent = summaryText();
+    const nWant = shown.filter(it => markOf(it) === 'want').length;
+    const nNew = shown.filter(isNew).length;
+    $('count').innerHTML = `符合 <b>${shown.length}</b> 筆` + (nNew ? `・🆕 ${nNew}` : '') + (nWant ? `・⭐ ${nWant}` : '');
+    const notes = [];
+    if (state.mode === 'radius') {
+      const noCoord = DATA.items.filter(it => it.lat == null && basicOk(it));
+      const nHome = noCoord.filter(it => it.category === '住辦').length;
+      if (nHome) notes.push(`ℹ️ 另有 ${nHome} 筆住辦 591 沒提供座標，無法判斷距離，切到「全部」才看得到`);
+      if (noCoord.length > nHome) notes.push(`⏳ 另有 ${noCoord.length - nHome} 筆座標還在建立中（Mac 背景補齊），切到「全部」才看得到`);
+    }
+    const skipped = DATA.items.filter(it => markOf(it) === 'skip').length;
+    if (skipped && !state.showSkip) notes.push(`已隱藏 ${skipped} 筆不考慮的物件`);
+    $('notes').innerHTML = notes.map(esc).join('<br>');
+
+    $('list').innerHTML = shown.length ? shown.map(card).join('')
+      : `<div class="empty">${DATA.items.length ? '沒有符合條件的物件，放寬篩選試試' : '還沒有資料，等下一次爬完（或在 LINE 傳「查詢」）就會有'}</div>`;
+
+    layer.clearLayers();
+    Object.keys(markers).forEach(k => delete markers[k]);
+    shown.forEach((it, i) => {
+      if (it.lat == null) return;
+      const mk = L.marker([it.lat, it.lng], {
+        icon: L.divIcon({ className: '', html: `<div class="${pinClass(it)}">${i + 1}</div>`, iconSize: [26, 26] }),
+        zIndexOffset: selected === it.id ? 900 : markOf(it) === 'want' ? 500 : 0,
+      }).bindPopup(popupHtml(it));
+      mk.on('click', () => select(it.id, false));
+      markers[it.id] = mk;
+      layer.addLayer(mk);
+    });
+    circle.setRadius(state.radius);
+    if (state.mode === 'radius') circle.addTo(map); else circle.remove();
+    if (!fitted && state.mode === 'radius') { map.fitBounds(circle.getBounds(), { padding: [10, 10] }); fitted = true; }
+  }
+
+  function select(id, fromList) {
+    selected = id;
+    document.querySelectorAll('.card.sel').forEach(el => el.classList.remove('sel'));
+    const el = document.querySelector(`.card[data-id="${id}"]`);
+    if (el) {
+      el.classList.add('sel');
+      if (!fromList) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    const it = DATA.items.find(x => x.id === id);
+    const mk = markers[id];
+    if (fromList && mk && it) {
+      if (window.innerWidth <= 860) window.scrollTo({ top: 0, behavior: 'smooth' });
+      map.setView([it.lat, it.lng], Math.max(map.getZoom(), 17));
+      mk.openPopup();
+    }
+  }
+
+  // ---------- 標記 ----------
+  let undoFn = null, toastTimer = null;
+  function toast(text, undo) {
+    $('toastText').textContent = text;
+    $('toastUndo').style.display = undo ? '' : 'none';
+    undoFn = undo;
+    $('toast').style.display = 'flex';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { $('toast').style.display = 'none'; }, 5000);
+  }
+  $('toastUndo').onclick = () => { $('toast').style.display = 'none'; if (undoFn) undoFn(); };
+
+  function setMark(id, mark) {
+    const before = marks[id];
+    if (mark) marks[id] = { m: mark, t: Date.now() }; else delete marks[id];
+    render();
+    // text/plain 是「簡單請求」，瀏覽器不會先送 OPTIONS 預檢（GAS 不處理 OPTIONS）
+    fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                 body: JSON.stringify({ action: 'mark', key: KEY, id, mark }) })
+      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(r.error);
+        marks = r.marks; render();
+      })
+      .catch(err => {
+        if (before) marks[id] = before; else delete marks[id];
+        render();
+        toast('儲存失敗：' + err.message);
+      });
+    const undo = () => setMark(id, before ? before.m : '');
+    if (mark === 'skip') toast('已標為不考慮，LINE 名單也不再列出', undo);
+    else if (mark === 'want') toast('已標為想約看', undo);
+    else toast('已取消標記', undo);
+  }
+
+  $('list').addEventListener('click', e => {
+    const c = e.target.closest('.card');
+    if (!c) return;
+    const btn = e.target.closest('button[data-mark]');
+    if (btn) {
+      const it = DATA.items.find(x => x.id === c.dataset.id);
+      setMark(c.dataset.id, markOf(it) === btn.dataset.mark ? '' : btn.dataset.mark);
+      return;
+    }
+    if (e.target.closest('a')) return;
+    select(c.dataset.id, true);
+  });
+
+  // ---------- 篩選控制項 ----------
+  function bindSeg(id, key) {
+    const box = $(id);
+    const sync = () => box.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === state[key]));
+    box.addEventListener('click', e => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      state[key] = b.dataset.v;
+      sync(); changed();
+    });
+    sync();
+  }
+  function changed() {
+    $('radiusRow').style.display = state.mode === 'radius' ? '' : 'none';
+    $('radiusVal').textContent = `${state.radius}m（🚶 約 ${walk(state.radius)} 分）`;
+    saveState(); render();
+  }
+  bindSeg('mode', 'mode');
+  bindSeg('show', 'show');
+  $('radius').value = state.radius;
+  $('radius').oninput = e => { state.radius = +e.target.value; changed(); };
+  $('maxPrice').value = String(state.maxPrice);
+  if ($('maxPrice').value !== String(state.maxPrice)) {   // LINE 上設了選單沒有的金額
+    $('maxPrice').add(new Option(fmtWan(state.maxPrice) + '以下', state.maxPrice), 1);
+    $('maxPrice').value = String(state.maxPrice);
+  }
+  $('maxPrice').onchange = e => { state.maxPrice = +e.target.value; changed(); };
+  $('minArea').value = state.minArea; $('maxArea').value = state.maxArea;
+  $('minArea').oninput = e => { state.minArea = e.target.value; changed(); };
+  $('maxArea').oninput = e => { state.maxArea = e.target.value; changed(); };
+  $('showSkip').checked = state.showSkip;
+  $('showSkip').onchange = e => { state.showSkip = e.target.checked; changed(); };
+  $('sort').value = state.sort;
+  $('sort').onchange = e => { state.sort = e.target.value; changed(); };
+  $('cats').innerHTML = CATS.map(c => `<button class="chip" data-c="${c}">${c}</button> `).join('');
+  const syncCats = () => document.querySelectorAll('#cats .chip').forEach(b => b.classList.toggle('on', state.cats.includes(b.dataset.c)));
+  $('cats').addEventListener('click', e => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    const c = b.dataset.c;
+    state.cats = state.cats.includes(c) ? state.cats.filter(x => x !== c) : state.cats.concat(c);
+    syncCats(); changed();
+  });
+  syncCats();
+  $('filters').open = window.innerWidth > 860;
+
+  // ---------- 更新時間 ----------
+  if (DATA.updated) {
+    const d = new Date(DATA.updated * 1000);
+    const pad = n => String(n).padStart(2, '0');
+    const hours = (Date.now() - d) / 3600000;
+    $('updated').textContent = `資料更新：${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}` +
+      `（${DATA.sections.join('、')}，共 ${DATA.items.length} 筆有 1 樓的物件）` + (hours > 6 ? '　⚠️ 超過 6 小時沒更新，Mac 可能睡著了' : '');
+    $('updated').classList.toggle('stale', hours > 6);
+  }
+
+  changed();
+  setTimeout(() => map.invalidateSize(), 200);
+}
+
+boot();
+</script>
+</body>
+</html>
