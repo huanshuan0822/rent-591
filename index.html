@@ -202,11 +202,19 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-// 連結格式：…/rent591-map/#k=網頁密鑰&s=GAS部署代號（放在 # 後面，不會送到 GitHub）。
+// 連結格式：https://<帳號>.github.io/<repo>/#k=網頁密鑰&s=GAS部署代號（放在 # 後面，不會送到 GitHub）。
 // 資料與標記都存在 GAS（rent591-linebot/gas/Code.gs 的 doGet／handleMark_），這裡只有畫面。
+// 用完整連結開過一次就記在這台瀏覽器，之後直接開網址也能用
+const LINK_KEY = 'rent591.link';
 const HASH = new URLSearchParams(location.hash.slice(1));
-const KEY = HASH.get('k');
-const API = /^[\w-]+$/.test(HASH.get('s') || '') ? `https://script.google.com/macros/s/${HASH.get('s')}/exec` : '';
+let link = { k: HASH.get('k'), s: HASH.get('s') };
+try {
+  if (link.k && link.s) localStorage.setItem(LINK_KEY, JSON.stringify(link));
+  else link = JSON.parse(localStorage.getItem(LINK_KEY) || '{}');
+} catch (e) {}
+const KEY = link.k;
+const API = /^[\w-]+$/.test(link.s || '') ? `https://script.google.com/macros/s/${link.s}/exec` : '';
+const FIRST_TIME = '第一次使用請在 LINE 傳「網頁」，用拿到的完整連結開啟一次，之後這台手機／電腦直接開這個網址就可以';
 
 function fatal(msg) {
   document.getElementById('count').textContent = '';
@@ -214,7 +222,7 @@ function fatal(msg) {
 }
 
 async function boot() {
-  if (!KEY || !API) return fatal('連結不完整，請從 LINE 傳「網頁」取得完整連結再開啟');
+  if (!KEY || !API) return fatal(FIRST_TIME);
   document.getElementById('list').innerHTML = '<div class="empty">載入中…</div>';
   let res;
   try {
@@ -222,7 +230,11 @@ async function boot() {
   } catch (e) {
     return fatal('讀取資料失敗，請稍後再試（' + e.message + '）');
   }
-  if (!res.ok) return fatal(res.error === '找不到頁面' ? '連結已失效，請從 LINE 傳「網頁」取得新連結' : '讀取資料失敗：' + res.error);
+  if (res.error === '找不到頁面') {   // 密鑰換過了：清掉記住的舊連結
+    try { localStorage.removeItem(LINK_KEY); } catch (e) {}
+    return fatal('連結已失效。' + FIRST_TIME);
+  }
+  if (!res.ok) return fatal('讀取資料失敗：' + res.error);
   start(res);
 }
 
