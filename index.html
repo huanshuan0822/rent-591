@@ -62,6 +62,15 @@
   .logo .ico { width: 22px; height: 22px; stroke-width: 2; }
   h1 { font-size: 18px; line-height: 1.25; margin: 0; font-weight: 700; letter-spacing: .02em; }
   .sub { font-size: 12.5px; color: var(--ink-3); margin-top: 1px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .refresh {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex: none; border: 1px solid var(--line);
+    background: var(--surface); border-radius: 10px; padding: 7px 12px; font-size: 13.5px; font-weight: 500; color: var(--brand);
+    white-space: nowrap; transition: background .12s;
+  }
+  .refresh:hover:not(:disabled) { background: var(--brand-soft); }
+  .refresh:disabled { color: var(--ink-3); cursor: default; }
+  .refresh.busy .ico { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: #22a06b; flex: none; }
   .sub.stale { color: var(--new); }
   .sub.stale .dot { background: var(--new); }
@@ -267,6 +276,10 @@
           <h1>591 店面地圖</h1>
           <div class="sub" id="updated">讀取中…</div>
         </div>
+        <button class="refresh" id="refreshBtn" hidden>
+          <svg class="ico" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 4v4h4M4 13a8 8 0 0 0 14.6 4.5M20 20v-4h-4"/></svg>
+          <span id="refreshText">重新查詢</span>
+        </button>
       </div>
       <button id="fsumBtn">
         <svg class="ico" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
@@ -735,6 +748,66 @@ function start(BOOT) {
   $('tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setView(b.dataset.v); });
   const measure = () => document.documentElement.style.setProperty('--chrome-h', $('chrome').offsetHeight + 'px');
   window.addEventListener('resize', () => { measure(); map.invalidateSize(); });
+
+  // ---------- 重新查詢：請 GAS 觸發 GitHub Actions 爬一次，資料更新後自動重新載入 ----------
+  const REFRESH_MAX_MS = 12 * 60 * 1000;
+  let refreshTimers = [];
+  function refreshIdle() {
+    refreshTimers.forEach(clearInterval);
+    refreshTimers = [];
+    $('refreshBtn').disabled = false;
+    $('refreshBtn').classList.remove('busy');
+    $('refreshText').textContent = '重新查詢';
+  }
+  function watchRefresh(at) {
+    const btn = $('refreshBtn');
+    btn.disabled = true;
+    btn.classList.add('busy');
+    const clock = () => {
+      const sec = Math.max(0, Math.floor((Date.now() - at) / 1000));
+      $('refreshText').textContent = `查詢中 ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+      if (Date.now() - at > REFRESH_MAX_MS) {
+        refreshIdle();
+        toast('重新查詢太久沒有結果，可能失敗了，請稍後再試');
+      }
+    };
+    const poll = async () => {
+      try {
+        const r = await (await fetch(`${API}?k=${encodeURIComponent(KEY)}`)).json();
+        if (r.data && r.data.updated * 1000 >= at) return location.reload();
+        if (r.refresh && r.refresh.failed && r.refresh.failed.at >= at) {
+          refreshIdle();
+          toast('重新查詢失敗：' + r.refresh.failed.error);
+        }
+      } catch (e) {}   // 網路一時不通就等下一輪
+    };
+    clock();
+    refreshTimers.push(setInterval(clock, 1000), setInterval(poll, 15000));
+  }
+  $('refreshBtn').hidden = false;
+  $('refreshBtn').onclick = async () => {
+    $('refreshBtn').disabled = true;
+    try {
+      const r = await (await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                                          body: JSON.stringify({ action: 'refresh', key: KEY }) })).json();
+      if (!r.ok) throw new Error(r.error);
+      if (r.already && DATA.updated * 1000 >= r.at) {
+        refreshIdle();
+        toast(`${Math.max(1, Math.round((Date.now() - r.at) / 60000))} 分鐘前才查過，資料已是最新，5 分鐘後可以再查`);
+        return;
+      }
+      toast(r.already ? '剛剛已經有人按了重新查詢，正在等結果' : '已開始重新查詢 591，約 3～5 分鐘後自動更新');
+      watchRefresh(r.at);
+    } catch (e) {
+      refreshIdle();
+      toast('無法重新查詢：' + e.message);
+    }
+  };
+  // 重新整理頁面時，若還有查詢在跑就接著顯示進度
+  const rf = BOOT.refresh || {};
+  if (rf.at && (DATA.updated || 0) * 1000 < rf.at && Date.now() - rf.at < REFRESH_MAX_MS && !(rf.failed && rf.failed.at >= rf.at)) {
+    watchRefresh(rf.at);
+  }
 
   // ---------- 更新時間 ----------
   if (DATA.updated) {
